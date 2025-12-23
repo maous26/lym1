@@ -20,6 +20,12 @@ import {
   MessageCircle,
   Loader2,
   Plus,
+  Zap,
+  Coffee,
+  UtensilsCrossed,
+  Cookie,
+  Moon,
+  ChevronRight,
 } from 'lucide-react';
 import { SearchBar } from '@/components/features/search/SearchBar';
 import { SearchResults } from '@/components/features/search/SearchResults';
@@ -35,6 +41,7 @@ import type { Product } from '@/types/product';
 import type { MealType, FoodItem, MealItem, NutritionInfo } from '@/types/meal';
 import type { MeasurementUnit } from '@/lib/unit-utils';
 import { getCommunityRecipes } from '@/app/actions/social-recipe';
+import { useCaloricBalance } from '@/hooks/useCaloricBalance';
 
 // Tab types
 type InputTab = 'search' | 'voice' | 'ai' | 'photo' | 'barcode' | 'recipes';
@@ -75,20 +82,65 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
   dinner: 'Dîner',
 };
 
+// Meal selection options for pleasure mode
+const MEAL_OPTIONS = [
+  {
+    type: 'breakfast' as MealType,
+    label: 'Petit-déjeuner',
+    icon: Coffee,
+    color: 'from-amber-400 to-orange-500',
+    bgColor: 'bg-amber-50',
+    textColor: 'text-amber-700',
+  },
+  {
+    type: 'lunch' as MealType,
+    label: 'Déjeuner',
+    icon: UtensilsCrossed,
+    color: 'from-emerald-400 to-teal-500',
+    bgColor: 'bg-emerald-50',
+    textColor: 'text-emerald-700',
+  },
+  {
+    type: 'snack' as MealType,
+    label: 'Collation',
+    icon: Cookie,
+    color: 'from-pink-400 to-rose-500',
+    bgColor: 'bg-pink-50',
+    textColor: 'text-pink-700',
+  },
+  {
+    type: 'dinner' as MealType,
+    label: 'Dîner',
+    icon: Moon,
+    color: 'from-indigo-400 to-purple-500',
+    bgColor: 'bg-indigo-50',
+    textColor: 'text-indigo-700',
+  },
+];
+
 function AddMealContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const caloricBalance = useCaloricBalance();
 
   // URL params
-  const mealType = (searchParams.get('type') as MealType) || 'lunch';
+  const initialMealType = (searchParams.get('type') as MealType) || 'lunch';
   const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const isPleasureMode = searchParams.get('mode') === 'pleasure';
+  const initialTab = (searchParams.get('tab') as InputTab) || 'search';
 
   // Local state
-  const [activeTab, setActiveTab] = useState<InputTab>('search');
+  const [selectedMealType, setSelectedMealType] = useState<MealType | null>(
+    isPleasureMode ? null : initialMealType
+  );
+  const [activeTab, setActiveTab] = useState<InputTab>(isPleasureMode ? 'ai' : initialTab);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [addedItems, setAddedItems] = useState<MealItem[]>([]);
   const [communityRecipes, setCommunityRecipes] = useState<CommunityRecipe[]>([]);
   const [recipesLoading, setRecipesLoading] = useState(false);
+
+  // Effective meal type (either selected or from URL)
+  const mealType = selectedMealType || initialMealType;
 
   // Load community recipes
   useEffect(() => {
@@ -216,6 +268,118 @@ function AddMealContent() {
     0
   );
 
+  // Show meal selection screen for pleasure mode
+  if (isPleasureMode && !selectedMealType) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-amber-50">
+        {/* Header */}
+        <div className="bg-white/80 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-100">
+          <div className="flex items-center gap-3 px-4 py-4">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => router.back()}
+              className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </motion.button>
+            <div className="flex-1">
+              <h1 className="font-bold text-gray-900 text-lg">
+                Crédit plaisir
+              </h1>
+              <span className="text-sm text-gray-500">
+                Choisis ton repas plaisir
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="px-4 py-6 space-y-6">
+          {/* Balance info card */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-xl shadow-emerald-500/30"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                <Zap className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-emerald-100 text-sm">Ton solde disponible</p>
+                <p className="text-3xl font-bold">
+                  {caloricBalance.availableBalance.toLocaleString('fr-FR')} kcal
+                </p>
+              </div>
+            </div>
+            <p className="text-emerald-100 text-sm">
+              Utilise ces calories pour te faire plaisir sans culpabilité !
+            </p>
+          </motion.div>
+
+          {/* Meal selection */}
+          <div>
+            <h2 className="font-bold text-gray-900 text-lg mb-4">
+              Pour quel repas veux-tu utiliser ton crédit ?
+            </h2>
+
+            <div className="grid grid-cols-2 gap-3">
+              {MEAL_OPTIONS.map((meal, index) => {
+                const Icon = meal.icon;
+                return (
+                  <motion.button
+                    key={meal.type}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setSelectedMealType(meal.type)}
+                    className={cn(
+                      'p-5 rounded-2xl border-2 border-transparent transition-all',
+                      meal.bgColor,
+                      'hover:border-gray-200 hover:shadow-lg'
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'w-14 h-14 rounded-2xl bg-gradient-to-br mb-3 flex items-center justify-center',
+                        meal.color
+                      )}
+                    >
+                      <Icon className="w-7 h-7 text-white" />
+                    </div>
+                    <h3 className={cn('font-bold text-base', meal.textColor)}>
+                      {meal.label}
+                    </h3>
+                    <div className="flex items-center gap-1 mt-2 text-gray-400">
+                      <span className="text-xs">Sélectionner</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tips */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="bg-amber-50 rounded-2xl p-4 border border-amber-100"
+          >
+            <p className="text-sm text-amber-800">
+              <strong>Conseil :</strong> Choisis le repas où tu as le plus envie de te faire plaisir.
+              L'IA va générer une recette gourmande qui correspond à ton crédit disponible.
+            </p>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-stone-50">
       {/* Header */}
@@ -231,11 +395,19 @@ function AddMealContent() {
           </motion.button>
           <div className="flex-1">
             <h1 className="font-semibold text-stone-800">
-              Ajouter un aliment ou un repas
+              {isPleasureMode ? 'Repas plaisir' : 'Ajouter un aliment ou un repas'}
             </h1>
-            <span className="text-sm text-stone-500">
-              {MEAL_TYPE_LABELS[mealType]}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-stone-500">
+                {MEAL_TYPE_LABELS[mealType]}
+              </span>
+              {isPleasureMode && (
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full flex items-center gap-1">
+                  <Zap className="w-3 h-3" />
+                  {caloricBalance.availableBalance} kcal
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

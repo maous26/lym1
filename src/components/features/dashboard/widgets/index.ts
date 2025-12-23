@@ -2,6 +2,7 @@ export { WelcomeWidget } from './WelcomeWidget';
 export { NutritionRingWidget } from './NutritionRingWidget';
 export { MacronutrientsChartWidget } from './MacronutrientsChartWidget';
 export { PlaisirCreditWidget } from './PlaisirCreditWidget';
+export { CaloricBalanceWidget } from './CaloricBalanceWidget';
 export { TodayMealsWidget } from './TodayMealsWidget';
 export { QuickActionsWidget } from './QuickActionsWidget';
 export { CoachInsightWidget } from './CoachInsightWidget';

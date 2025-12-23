@@ -11,13 +11,13 @@ import {
   WelcomeWidget,
   NutritionRingWidget,
   MacronutrientsChartWidget,
-  PlaisirCreditWidget,
+  CaloricBalanceWidget,
   TodayMealsWidget,
   CoachInsightWidget,
   RecipeSuggestionWidget,
   HydrationWidget,
 } from '@/components/features/dashboard/widgets';
-import { usePlaisirCredit } from '@/hooks/usePlaisirCredit';
+import { useCaloricBalance } from '@/hooks/useCaloricBalance';
 import { useMealStore } from '@/store/meal-store';
 import { WeightTracker, WeightTrackerRef } from '@/components/features/weight/WeightTracker';
 import { ConnectedDevices } from '@/components/features/weight/ConnectedDevices';
@@ -34,7 +34,7 @@ export default function HomePage() {
   const activeMode = useActiveMode();
   const todayMeals = useTodayMeals();
   const { meals, syncFromDatabase } = useMealStore();
-  const plaisirCredit = usePlaisirCredit();
+  const caloricBalance = useCaloricBalance();
 
   // Sync meals from database on mount
   useEffect(() => {
@@ -155,7 +155,7 @@ export default function HomePage() {
   };
 
   const handlePlanPleasureMeal = () => {
-    router.push('/meals/add?tab=recipes&filter=plaisir');
+    router.push('/meals/add?tab=ai&mode=pleasure');
   };
 
   // Handle recipe submission success
@@ -308,16 +308,18 @@ export default function HomePage() {
           />
         </section>
 
-        {/* Plaisir Credit Widget */}
+        {/* Caloric Balance Widget */}
         <section className="mt-6">
-          <PlaisirCreditWidget
-            currentCredit={plaisirCredit.currentCredit}
-            creditRequired={plaisirCredit.creditRequired}
-            weeklyHistory={plaisirCredit.weeklyHistory}
-            isReady={plaisirCredit.isReady}
-            percentageFilled={plaisirCredit.percentageFilled}
-            message={plaisirCredit.message}
-            onPlanPleasureMeal={handlePlanPleasureMeal}
+          <CaloricBalanceWidget
+            availableBalance={caloricBalance.availableBalance}
+            weeklyHistory={caloricBalance.weeklyHistory}
+            projectedJ7Impact={caloricBalance.projectedJ7Impact}
+            projectedWeightChange={caloricBalance.projectedWeightChange}
+            todayBalance={caloricBalance.todayBalance}
+            todayTarget={caloricBalance.todayTarget}
+            todayConsumed={caloricBalance.todayConsumed}
+            canUsePleasureCredit={caloricBalance.canUsePleasureCredit}
+            message={caloricBalance.message}
           />
         </section>
 
