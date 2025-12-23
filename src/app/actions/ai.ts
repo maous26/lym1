@@ -318,19 +318,100 @@ Réponds UNIQUEMENT avec un JSON valide avec cette structure exacte:
 }
 
 /**
- * Generate food image using OpenAI DALL-E 3 and persist to permanent storage
+ * Check if Google Vertex AI is available for image generation
+ */
+function isVertexAIAvailable(): boolean {
+    return !!process.env.GOOGLE_CLOUD_PROJECT &&
+           (!!process.env.GOOGLE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS);
+}
+
+/**
+ * Generate food image using Google Imagen 3 (more realistic) and persist to permanent storage
+ * Falls back to DALL-E 3 if Vertex AI is not configured
  */
 export async function generateFoodImage(description: string): Promise<{ success: boolean; image?: string; error?: string }> {
     try {
+        const prompt = IMAGE_GENERATION_PROMPT_TEMPLATE(description);
+
+        // Try Google Imagen 3 first (more realistic images)
+        if (isVertexAIAvailable()) {
+            console.log('Generating image with Google Imagen 3:', prompt.substring(0, 100));
+
+            const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+            const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+
+            // Get access token
+            let accessToken: string;
+
+            if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+                // Use service account key directly
+                const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                const jwt = await createJWT(credentials);
+                accessToken = await exchangeJWTForToken(jwt);
+            } else {
+                // This won't work in production without proper auth setup
+                throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY required for Imagen');
+            }
+
+            const imagenUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
+
+            const response = await fetch(imagenUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    instances: [{ prompt }],
+                    parameters: {
+                        sampleCount: 1,
+                        aspectRatio: "1:1",
+                        safetyFilterLevel: "block_few",
+                        personGeneration: "dont_allow",
+                    },
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Imagen API error:', response.status, errorData);
+                // Fall through to DALL-E fallback
+            } else {
+                const data = await response.json();
+                const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+
+                if (base64Image) {
+                    console.log('Imagen 3 image generated successfully, persisting to storage...');
+
+                    // Generate unique filename
+                    const timestamp = Date.now();
+                    const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+                    const filename = `${timestamp}-${descHash}`;
+
+                    // Convert base64 to data URL for upload
+                    const dataUrl = `data:image/png;base64,${base64Image}`;
+                    const permanentUrl = await uploadImageToStorage(dataUrl, filename);
+
+                    if (permanentUrl) {
+                        console.log('Image persisted successfully:', permanentUrl);
+                        return { success: true, image: permanentUrl };
+                    } else {
+                        // Return as data URL if storage fails
+                        return { success: true, image: dataUrl };
+                    }
+                }
+            }
+        }
+
+        // Fallback to DALL-E 3
         const apiKey = process.env.OPENAI_API_KEY;
 
         if (!apiKey) {
-            console.log('OpenAI API key not configured');
-            return { success: false, error: "OPENAI_API_KEY not configured" };
+            console.log('No image generation API configured');
+            return { success: false, error: "No image generation API configured" };
         }
 
-        const prompt = IMAGE_GENERATION_PROMPT_TEMPLATE(description);
-        console.log('Generating image with DALL-E 3:', prompt.substring(0, 100));
+        console.log('Falling back to DALL-E 3:', prompt.substring(0, 100));
 
         const response = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
@@ -362,14 +443,14 @@ export async function generateFoodImage(description: string): Promise<{ success:
             return { success: false, error: "No image URL in response" };
         }
 
-        console.log('Image generated successfully, persisting to storage...');
+        console.log('DALL-E image generated successfully, persisting to storage...');
 
         // Generate unique filename based on timestamp and description hash
         const timestamp = Date.now();
         const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
         const filename = `${timestamp}-${descHash}`;
 
-        // Upload to permanent storage (Vercel Blob)
+        // Upload to permanent storage
         const permanentUrl = await uploadImageToStorage(tempImageUrl, filename);
 
         if (permanentUrl) {
@@ -385,6 +466,62 @@ export async function generateFoodImage(description: string): Promise<{ success:
         console.error("Error in generateFoodImage:", error);
         return { success: false, error: error instanceof Error ? error.message : "Failed to generate image" };
     }
+}
+
+/**
+ * Create a JWT for Google service account authentication
+ */
+async function createJWT(credentials: { client_email: string; private_key: string }): Promise<string> {
+    const header = {
+        alg: 'RS256',
+        typ: 'JWT',
+    };
+
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+        iss: credentials.client_email,
+        sub: credentials.client_email,
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+        scope: 'https://www.googleapis.com/auth/cloud-platform',
+    };
+
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signatureInput = `${encodedHeader}.${encodedPayload}`;
+
+    // Import crypto for signing
+    const crypto = await import('crypto');
+    const sign = crypto.createSign('RSA-SHA256');
+    sign.update(signatureInput);
+    const signature = sign.sign(credentials.private_key, 'base64url');
+
+    return `${signatureInput}.${signature}`;
+}
+
+/**
+ * Exchange JWT for access token
+ */
+async function exchangeJWTForToken(jwt: string): Promise<string> {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion: jwt,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to get access token: ${error}`);
+    }
+
+    const data = await response.json();
+    return data.access_token;
 }
 
 /**
