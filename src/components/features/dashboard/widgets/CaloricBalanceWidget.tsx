@@ -83,6 +83,9 @@ function DailyBar({
     ? Math.min(((percentage - 100) / 100) * targetLinePosition, maxHeight - targetLinePosition)
     : 0;
 
+  // Daily balance (difference from target)
+  const dailyBalance = day.balance;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -90,6 +93,18 @@ function DailyBar({
       transition={{ delay: index * 0.05 }}
       className="flex flex-col items-center gap-1 flex-1 relative"
     >
+      {/* Calories consumed label above bar */}
+      {!isEmpty && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: index * 0.05 + 0.3 }}
+          className="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] font-medium text-gray-500 whitespace-nowrap"
+        >
+          {consumed}
+        </motion.div>
+      )}
+
       {/* Cumulative balance badge on last day (J7) */}
       {isLastDay && cumulativeBalance !== 0 && (
         <motion.div
@@ -97,13 +112,13 @@ function DailyBar({
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.5 }}
           className={cn(
-            'absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap z-20',
+            'absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap z-20',
             cumulativeBalance > 0
               ? 'bg-emerald-100 text-emerald-700'
               : 'bg-red-100 text-red-700'
           )}
         >
-          {cumulativeBalance > 0 ? '+' : ''}{cumulativeBalance.toLocaleString('fr-FR')} kcal
+          {cumulativeBalance > 0 ? '+' : ''}{cumulativeBalance.toLocaleString('fr-FR')}
         </motion.div>
       )}
 
@@ -376,7 +391,7 @@ export function CaloricBalanceWidget({
 
       {/* Chart section */}
       <div className="px-5 pb-4">
-        <div className="bg-white rounded-2xl p-4 pt-8 border border-gray-100">
+        <div className="bg-white rounded-2xl p-4 pt-12 border border-gray-100">
           {/* Legend */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-1">
