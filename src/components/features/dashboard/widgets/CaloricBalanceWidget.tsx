@@ -14,6 +14,7 @@ import {
   Info,
   AlertTriangle,
   CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 import type { DailyBalance } from '@/lib/caloric-balance';
 
@@ -333,18 +334,30 @@ export function CaloricBalanceWidget({
   canUsePleasureCredit,
   message,
   className,
+  lastResetDate,
+  onReset,
+  canReset,
+  daysUntilReset,
 }: CaloricBalanceWidgetProps) {
   const router = useRouter();
   const [showDetails, setShowDetails] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleUsePleasureCredit = () => {
     router.push('/meals/add?tab=ai&mode=pleasure');
   };
 
-  // Find today's index in the history (last entry is today)
-  const todayIndex = weeklyHistory.length - 1;
+  const handleReset = () => {
+    if (onReset && canReset) {
+      onReset();
+      setShowResetConfirm(false);
+    }
+  };
 
-  // Last day index (J7) for showing cumulative balance
+  // Find today's index in the history (first entry is today - index 0)
+  const todayIndex = 0;
+
+  // Last day index (J7) for showing cumulative balance (index 6)
   const lastDayIndex = weeklyHistory.length - 1;
 
   // Calculate cumulative balance (sum of all daily balances)
@@ -377,7 +390,7 @@ export function CaloricBalanceWidget({
             </div>
             <div>
               <h3 className="font-bold text-gray-900 text-lg">Solde calorique</h3>
-              <p className="text-sm text-gray-500">Suivi des 7 derniers jours</p>
+              <p className="text-sm text-gray-500">Suivi sur 7 jours</p>
             </div>
           </div>
           <button
@@ -476,6 +489,63 @@ export function CaloricBalanceWidget({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Reset Balance Section */}
+      <div className="px-5 pb-4">
+        <AnimatePresence mode="wait">
+          {showResetConfirm ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="p-4 bg-amber-50 rounded-2xl border border-amber-200"
+            >
+              <p className="text-sm text-amber-800 mb-3">
+                Réinitialiser le solde ? Aujourd'hui deviendra le jour 1 de ta nouvelle semaine.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 py-2 px-4 rounded-xl bg-white border border-gray-200 text-gray-600 text-sm font-medium"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="flex-1 py-2 px-4 rounded-xl bg-amber-500 text-white text-sm font-medium"
+                >
+                  Confirmer
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              onClick={() => canReset && setShowResetConfirm(true)}
+              disabled={!canReset}
+              className={cn(
+                'w-full py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-sm font-medium transition-colors',
+                canReset
+                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+              )}
+            >
+              <RotateCcw className="w-4 h-4" />
+              {canReset ? (
+                'Réinitialiser le solde'
+              ) : (
+                `Disponible dans ${daysUntilReset} jour${daysUntilReset && daysUntilReset > 1 ? 's' : ''}`
+              )}
+            </motion.button>
+          )}
+        </AnimatePresence>
+        {lastResetDate && (
+          <p className="text-center text-[10px] text-gray-400 mt-2">
+            Dernier reset : {new Date(lastResetDate).toLocaleDateString('fr-FR')}
+          </p>
+        )}
+      </div>
 
       {/* CTA Button */}
       <div className="px-5 pb-5">
