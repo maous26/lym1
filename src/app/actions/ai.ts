@@ -335,71 +335,75 @@ export async function generateFoodImage(description: string): Promise<{ success:
 
         // Try Google Imagen 3 first (more realistic images)
         if (isVertexAIAvailable()) {
-            console.log('Generating image with Google Imagen 3:', prompt.substring(0, 100));
+            try {
+                console.log('Generating image with Google Imagen 3:', prompt.substring(0, 100));
 
-            const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-            const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+                const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+                const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
-            // Get access token
-            let accessToken: string;
+                // Get access token
+                let accessToken: string;
 
-            if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-                // Use service account key directly
-                const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-                const jwt = await createJWT(credentials);
-                accessToken = await exchangeJWTForToken(jwt);
-            } else {
-                // This won't work in production without proper auth setup
-                throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY required for Imagen');
-            }
+                if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+                    // Use service account key directly
+                    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                    const jwt = await createJWT(credentials);
+                    accessToken = await exchangeJWTForToken(jwt);
+                } else {
+                    throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY required for Imagen');
+                }
 
-            const imagenUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
+                const imagenUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
 
-            const response = await fetch(imagenUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`,
-                },
-                body: JSON.stringify({
-                    instances: [{ prompt }],
-                    parameters: {
-                        sampleCount: 1,
-                        aspectRatio: "1:1",
-                        safetyFilterLevel: "block_few",
-                        personGeneration: "dont_allow",
+                const response = await fetch(imagenUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`,
                     },
-                }),
-            });
+                    body: JSON.stringify({
+                        instances: [{ prompt }],
+                        parameters: {
+                            sampleCount: 1,
+                            aspectRatio: "1:1",
+                            safetyFilterLevel: "block_few",
+                            personGeneration: "dont_allow",
+                        },
+                    }),
+                });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('Imagen API error:', response.status, errorData);
-                // Fall through to DALL-E fallback
-            } else {
-                const data = await response.json();
-                const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error('Imagen API error:', response.status, errorData);
+                    // Fall through to DALL-E fallback
+                } else {
+                    const data = await response.json();
+                    const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
 
-                if (base64Image) {
-                    console.log('Imagen 3 image generated successfully, persisting to storage...');
+                    if (base64Image) {
+                        console.log('Imagen 3 image generated successfully, persisting to storage...');
 
-                    // Generate unique filename
-                    const timestamp = Date.now();
-                    const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-                    const filename = `${timestamp}-${descHash}`;
+                        // Generate unique filename
+                        const timestamp = Date.now();
+                        const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+                        const filename = `${timestamp}-${descHash}`;
 
-                    // Convert base64 to data URL for upload
-                    const dataUrl = `data:image/png;base64,${base64Image}`;
-                    const permanentUrl = await uploadImageToStorage(dataUrl, filename);
+                        // Convert base64 to data URL for upload
+                        const dataUrl = `data:image/png;base64,${base64Image}`;
+                        const permanentUrl = await uploadImageToStorage(dataUrl, filename);
 
-                    if (permanentUrl) {
-                        console.log('Image persisted successfully:', permanentUrl);
-                        return { success: true, image: permanentUrl };
-                    } else {
-                        // Return as data URL if storage fails
-                        return { success: true, image: dataUrl };
+                        if (permanentUrl) {
+                            console.log('Image persisted successfully:', permanentUrl);
+                            return { success: true, image: permanentUrl };
+                        } else {
+                            // Return as data URL if storage fails
+                            return { success: true, image: dataUrl };
+                        }
                     }
                 }
+            } catch (imagenError) {
+                console.error('Imagen error, falling back to DALL-E:', imagenError);
+                // Continue to DALL-E fallback
             }
         }
 
@@ -413,7 +417,7 @@ export async function generateFoodImage(description: string): Promise<{ success:
 
         console.log('Falling back to DALL-E 3:', prompt.substring(0, 100));
 
-        const response = await fetch('https://api.openai.com/v1/images/generations', {
+        const dalleResponse = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -429,17 +433,17 @@ export async function generateFoodImage(description: string): Promise<{ success:
             }),
         });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('DALL-E API error:', response.status, errorData);
-            return { success: false, error: `DALL-E error: ${response.status}` };
+        if (!dalleResponse.ok) {
+            const errorData = await dalleResponse.json().catch(() => ({}));
+            console.error('DALL-E API error:', dalleResponse.status, errorData);
+            return { success: false, error: `DALL-E error: ${dalleResponse.status}` };
         }
 
-        const data = await response.json();
-        const tempImageUrl = data.data?.[0]?.url;
+        const dalleData = await dalleResponse.json();
+        const tempImageUrl = dalleData.data?.[0]?.url;
 
         if (!tempImageUrl) {
-            console.error('No image URL in response:', data);
+            console.error('No image URL in response:', dalleData);
             return { success: false, error: "No image URL in response" };
         }
 
