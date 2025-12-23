@@ -49,16 +49,16 @@ export function calculateCaloricBalance(
   let totalBalance = 0;
   let daysWithData = 0;
 
-  // Calculer pour les 7 derniers jours (du plus ancien au plus récent)
-  for (let i = 6; i >= 0; i--) {
+  // Calculer pour les 7 prochains jours (aujourd'hui en premier, J+6 en dernier)
+  for (let i = 0; i <= 6; i++) {
     const date = new Date(today);
-    date.setDate(date.getDate() - i);
+    date.setDate(date.getDate() + i);
     const dateKey = date.toISOString().split('T')[0];
     const dayOfWeek = date.getDay();
 
     const dayMeals = meals[dateKey];
 
-    // Calculer les calories consommées
+    // Calculer les calories consommées (seulement pour aujourd'hui et les jours passés)
     let consumed = 0;
     if (dayMeals) {
       // Utiliser totalNutrition si disponible
@@ -75,7 +75,7 @@ export function calculateCaloricBalance(
 
     const balance = dailyTarget - consumed;
 
-    // Ne compter que les jours avec des données (sinon ça fausse le calcul)
+    // Ne compter que les jours avec des données (aujourd'hui seulement pour les calories consommées)
     const hasData = consumed > 0;
     if (hasData) {
       totalBalance += balance;
