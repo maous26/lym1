@@ -192,26 +192,46 @@ export async function saveMeal(meal: MealData) {
         });
 
         if (existingMeal) {
-            // Update existing meal
-            await prisma.mealItem.deleteMany({
+            // Get existing items to calculate new totals
+            const existingItems = await prisma.mealItem.findMany({
                 where: { mealId: existingMeal.id },
             });
 
+            // Calculate combined nutrition (existing + new items)
+            const existingNutrition = existingItems.reduce(
+                (acc, item) => ({
+                    calories: acc.calories + (item.calories || 0),
+                    proteins: acc.proteins + (item.proteins || 0),
+                    carbs: acc.carbs + (item.carbs || 0),
+                    fats: acc.fats + (item.fats || 0),
+                }),
+                { calories: 0, proteins: 0, carbs: 0, fats: 0 }
+            );
+
+            const newTotalNutrition = {
+                calories: existingNutrition.calories + meal.calories,
+                proteins: existingNutrition.proteins + meal.proteins,
+                carbs: existingNutrition.carbs + meal.carbs,
+                fats: existingNutrition.fats + meal.fats,
+            };
+
+            // Add new items to existing meal (don't delete existing items)
             await prisma.meal.update({
                 where: { id: existingMeal.id },
                 data: {
                     time: meal.time,
-                    calories: meal.calories,
-                    proteins: meal.proteins,
-                    carbs: meal.carbs,
-                    fats: meal.fats,
-                    fiber: meal.fiber,
-                    sugar: meal.sugar,
-                    sodium: meal.sodium,
+                    calories: newTotalNutrition.calories,
+                    proteins: newTotalNutrition.proteins,
+                    carbs: newTotalNutrition.carbs,
+                    fats: newTotalNutrition.fats,
+                    fiber: (existingMeal.fiber || 0) + (meal.fiber || 0),
+                    sugar: (existingMeal.sugar || 0) + (meal.sugar || 0),
+                    sodium: (existingMeal.sodium || 0) + (meal.sodium || 0),
                     source: meal.source,
-                    photoUrl: meal.photoUrl,
-                    notes: meal.notes,
+                    photoUrl: meal.photoUrl || existingMeal.photoUrl,
+                    notes: meal.notes || existingMeal.notes,
                     isPlanned: meal.isPlanned,
+                    // Add new items without deleting existing ones
                     items: {
                         create: meal.items.map((item) => ({
                             name: item.name,

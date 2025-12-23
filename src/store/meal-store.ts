@@ -250,9 +250,33 @@ export const useMealStore = create<MealState & MealActions>()(
             fatsGoal: 65,
           };
 
+          // Check if there's already a meal of this type for this date
+          const existingMealOfType = existing[meal.type] as Meal | undefined;
+
+          let updatedMeal: Meal;
+          if (existingMealOfType) {
+            // Merge items: add new items to existing meal
+            const mergedItems = [...existingMealOfType.items, ...meal.items];
+            const mergedNutrition = {
+              calories: existingMealOfType.totalNutrition.calories + meal.totalNutrition.calories,
+              proteins: existingMealOfType.totalNutrition.proteins + meal.totalNutrition.proteins,
+              carbs: existingMealOfType.totalNutrition.carbs + meal.totalNutrition.carbs,
+              fats: existingMealOfType.totalNutrition.fats + meal.totalNutrition.fats,
+            };
+            updatedMeal = {
+              ...existingMealOfType,
+              items: mergedItems,
+              totalNutrition: mergedNutrition,
+              updatedAt: new Date().toISOString(),
+            };
+          } else {
+            // No existing meal, use the new one as-is
+            updatedMeal = meal;
+          }
+
           const updated = {
             ...existing,
-            [meal.type]: meal,
+            [meal.type]: updatedMeal,
           };
 
           // Recalculate total nutrition
