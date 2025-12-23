@@ -6,6 +6,10 @@ import { generateUserProfileContext } from '@/lib/ai/user-context';
 import type { UserProfile } from '@/types/user';
 import type { NutritionInfo } from '@/types/meal';
 
+// Vertex AI SDK for image generation
+import { v1 } from '@google-cloud/aiplatform';
+import { helpers } from '@google-cloud/aiplatform';
+
 // Configure Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -326,8 +330,9 @@ function isVertexAIAvailable(): boolean {
 }
 
 /**
- * Generate food image using Google Imagen 3 (more realistic) and persist to permanent storage
- * Falls back to DALL-E 3 if Vertex AI is not configured
+ * Generate food image using Google Imagen 3 (more realistic) via official SDK
+ * Falls back to DALL-E 3 if Vertex AI is not configured or fails
+ * Uses the @google-cloud/aiplatform SDK for reliable authentication
  */
 export async function generateFoodImage(description: string): Promise<{ success: boolean; image?: string; error?: string }> {
     try {
@@ -336,71 +341,88 @@ export async function generateFoodImage(description: string): Promise<{ success:
         // Try Google Imagen 3 first (more realistic images)
         if (isVertexAIAvailable()) {
             try {
-                console.log('Generating image with Google Imagen 3:', prompt.substring(0, 100));
+                console.log('Generating image with Google Imagen 3 (SDK):', prompt.substring(0, 100));
 
                 const projectId = process.env.GOOGLE_CLOUD_PROJECT;
                 const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
-                // Get access token
-                let accessToken: string;
+                // Initialize Vertex AI client with proper credentials
+                const clientOptions: { apiEndpoint: string; credentials?: { client_email: string; private_key: string } } = {
+                    apiEndpoint: `${location}-aiplatform.googleapis.com`,
+                };
 
+                // If GOOGLE_SERVICE_ACCOUNT_KEY is set, parse and use it
                 if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-                    // Use service account key directly
-                    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-                    const jwt = await createJWT(credentials);
-                    accessToken = await exchangeJWTForToken(jwt);
-                } else {
-                    throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY required for Imagen');
-                }
-
-                const imagenUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
-
-                const response = await fetch(imagenUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`,
-                    },
-                    body: JSON.stringify({
-                        instances: [{ prompt }],
-                        parameters: {
-                            sampleCount: 1,
-                            aspectRatio: "1:1",
-                            safetyFilterLevel: "block_few",
-                            personGeneration: "dont_allow",
-                        },
-                    }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    console.error('Imagen API error:', response.status, errorData);
-                    // Fall through to DALL-E fallback
-                } else {
-                    const data = await response.json();
-                    const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
-
-                    if (base64Image) {
-                        console.log('Imagen 3 image generated successfully, persisting to storage...');
-
-                        // Generate unique filename
-                        const timestamp = Date.now();
-                        const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-                        const filename = `${timestamp}-${descHash}`;
-
-                        // Convert base64 to data URL for upload
-                        const dataUrl = `data:image/png;base64,${base64Image}`;
-                        const permanentUrl = await uploadImageToStorage(dataUrl, filename);
-
-                        if (permanentUrl) {
-                            console.log('Image persisted successfully:', permanentUrl);
-                            return { success: true, image: permanentUrl };
-                        } else {
-                            // Return as data URL if storage fails
-                            return { success: true, image: dataUrl };
-                        }
+                    try {
+                        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                        clientOptions.credentials = {
+                            client_email: credentials.client_email,
+                            private_key: credentials.private_key,
+                        };
+                    } catch (parseError) {
+                        console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY:', parseError);
+                        throw new Error('Invalid GOOGLE_SERVICE_ACCOUNT_KEY format');
                     }
                 }
+
+                const predictionServiceClient = new v1.PredictionServiceClient(clientOptions);
+
+                const endpoint = `projects/${projectId}/locations/${location}/publishers/google/models/imagen-3.0-generate-001`;
+
+                const instance = { prompt };
+                const instanceValue = helpers.toValue(instance);
+
+                const parameters = {
+                    sampleCount: 1,
+                    aspectRatio: "1:1",
+                    safetyFilterLevel: "block_some",
+                    personGeneration: "allow_adult",
+                };
+                const parameterValue = helpers.toValue(parameters);
+
+                // @ts-ignore - types for predict are complex
+                const [response] = await predictionServiceClient.predict({
+                    endpoint,
+                    instances: [instanceValue as any],
+                    parameters: parameterValue as any,
+                });
+
+                if (!response.predictions || response.predictions.length === 0) {
+                    throw new Error("No image generated from Imagen 3");
+                }
+
+                const prediction = response.predictions?.[0];
+                if (!prediction) {
+                    throw new Error("No prediction found");
+                }
+
+                const predictionValue = helpers.fromValue(prediction as any);
+                // @ts-ignore - bytesBase64Encoded exists on the response
+                const base64Image = predictionValue?.bytesBase64Encoded;
+
+                if (!base64Image) {
+                    throw new Error("No image data in Imagen response");
+                }
+
+                console.log('Imagen 3 image generated successfully, persisting to storage...');
+
+                // Generate unique filename
+                const timestamp = Date.now();
+                const descHash = description.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+                const filename = `${timestamp}-${descHash}`;
+
+                // Convert base64 to data URL for upload
+                const dataUrl = `data:image/png;base64,${base64Image}`;
+                const permanentUrl = await uploadImageToStorage(dataUrl, filename);
+
+                if (permanentUrl) {
+                    console.log('Image persisted successfully:', permanentUrl);
+                    return { success: true, image: permanentUrl };
+                } else {
+                    // Return as data URL if storage fails
+                    return { success: true, image: dataUrl };
+                }
+
             } catch (imagenError) {
                 console.error('Imagen error, falling back to DALL-E:', imagenError);
                 // Continue to DALL-E fallback
@@ -470,62 +492,6 @@ export async function generateFoodImage(description: string): Promise<{ success:
         console.error("Error in generateFoodImage:", error);
         return { success: false, error: error instanceof Error ? error.message : "Failed to generate image" };
     }
-}
-
-/**
- * Create a JWT for Google service account authentication
- */
-async function createJWT(credentials: { client_email: string; private_key: string }): Promise<string> {
-    const header = {
-        alg: 'RS256',
-        typ: 'JWT',
-    };
-
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-        iss: credentials.client_email,
-        sub: credentials.client_email,
-        aud: 'https://oauth2.googleapis.com/token',
-        iat: now,
-        exp: now + 3600,
-        scope: 'https://www.googleapis.com/auth/cloud-platform',
-    };
-
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signatureInput = `${encodedHeader}.${encodedPayload}`;
-
-    // Import crypto for signing
-    const crypto = await import('crypto');
-    const sign = crypto.createSign('RSA-SHA256');
-    sign.update(signatureInput);
-    const signature = sign.sign(credentials.private_key, 'base64url');
-
-    return `${signatureInput}.${signature}`;
-}
-
-/**
- * Exchange JWT for access token
- */
-async function exchangeJWTForToken(jwt: string): Promise<string> {
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-            assertion: jwt,
-        }),
-    });
-
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Failed to get access token: ${error}`);
-    }
-
-    const data = await response.json();
-    return data.access_token;
 }
 
 /**
