@@ -57,12 +57,16 @@ function DailyBar({
   index,
   target,
   isToday,
+  isLastDay,
+  cumulativeBalance,
   maxHeight = 80,
 }: {
   day: DailyBalance;
   index: number;
   target: number;
   isToday: boolean;
+  isLastDay: boolean;
+  cumulativeBalance: number;
   maxHeight?: number;
 }) {
   const consumed = day.consumed;
@@ -84,8 +88,25 @@ function DailyBar({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className="flex flex-col items-center gap-1 flex-1"
+      className="flex flex-col items-center gap-1 flex-1 relative"
     >
+      {/* Cumulative balance badge on last day (J7) */}
+      {isLastDay && cumulativeBalance !== 0 && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.5 }}
+          className={cn(
+            'absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap z-20',
+            cumulativeBalance > 0
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-red-100 text-red-700'
+          )}
+        >
+          {cumulativeBalance > 0 ? '+' : ''}{cumulativeBalance.toLocaleString('fr-FR')} kcal
+        </motion.div>
+      )}
+
       {/* Bar container */}
       <div
         className="relative w-full flex flex-col justify-end items-center"
@@ -118,7 +139,8 @@ function DailyBar({
             className={cn(
               'w-full rounded-sm',
               isEmpty ? 'bg-gray-200' : 'bg-gradient-to-t from-emerald-400 to-emerald-500',
-              isToday && 'ring-2 ring-offset-1 ring-blue-500'
+              isToday && 'ring-2 ring-offset-1 ring-blue-500',
+              isLastDay && !isToday && 'ring-2 ring-offset-1 ring-orange-400'
             )}
           />
         </div>
@@ -138,12 +160,13 @@ function DailyBar({
         )}
       </div>
 
-      {/* Day label */}
+      {/* Day label - Using actual day names from weeklyHistory */}
       <span className={cn(
         'text-[10px] font-medium',
-        isToday ? 'text-blue-600 font-bold' : 'text-gray-500'
+        isToday ? 'text-blue-600 font-bold' : 'text-gray-500',
+        isLastDay && !isToday && 'text-orange-600 font-bold'
       )}>
-        {isToday ? 'Auj.' : `J${index === 0 ? '' : '+' + index}`}
+        {day.dayLabel}
       </span>
     </motion.div>
   );
@@ -303,8 +326,20 @@ export function CaloricBalanceWidget({
     router.push('/meals/add?tab=ai&mode=pleasure');
   };
 
-  // Find today's index in the history
+  // Find today's index in the history (last entry is today)
   const todayIndex = weeklyHistory.length - 1;
+
+  // Last day index (J7) for showing cumulative balance
+  const lastDayIndex = weeklyHistory.length - 1;
+
+  // Calculate cumulative balance (sum of all daily balances)
+  const cumulativeBalance = weeklyHistory.reduce((sum, day) => {
+    // Only count days with data
+    if (day.consumed > 0) {
+      return sum + day.balance;
+    }
+    return sum;
+  }, 0);
 
   return (
     <motion.div
@@ -341,7 +376,7 @@ export function CaloricBalanceWidget({
 
       {/* Chart section */}
       <div className="px-5 pb-4">
-        <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <div className="bg-white rounded-2xl p-4 pt-8 border border-gray-100">
           {/* Legend */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-1">
@@ -354,7 +389,7 @@ export function CaloricBalanceWidget({
                 <span className="text-gray-500">Sous seuil</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                <div className="w-2 h-2 rounded-full bg-orange-500" />
                 <span className="text-gray-500">Au-dessus</span>
               </div>
             </div>
@@ -369,6 +404,8 @@ export function CaloricBalanceWidget({
                 index={index}
                 target={todayTarget}
                 isToday={index === todayIndex}
+                isLastDay={index === lastDayIndex}
+                cumulativeBalance={cumulativeBalance}
               />
             ))}
           </div>
