@@ -94,8 +94,8 @@ function DailyBar({
       transition={{ delay: index * 0.05 }}
       className="flex flex-col items-center gap-1 flex-1 relative"
     >
-      {/* Calories consumed label above bar */}
-      {!isEmpty && (
+      {/* Calories consumed label above bar (not on last day if showing balance) */}
+      {!isEmpty && !(isLastDay && cumulativeBalance !== 0) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -106,17 +106,15 @@ function DailyBar({
         </motion.div>
       )}
 
-      {/* Cumulative balance badge on last day (J7) */}
+      {/* Cumulative balance label on last day (J7) */}
       {isLastDay && cumulativeBalance !== 0 && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
           className={cn(
-            'absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap z-20',
-            cumulativeBalance > 0
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-red-100 text-red-700'
+            'absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] font-bold whitespace-nowrap z-20',
+            cumulativeBalance > 0 ? 'text-blue-600' : 'text-orange-600'
           )}
         >
           {cumulativeBalance > 0 ? '+' : ''}{cumulativeBalance.toLocaleString('fr-FR')}
@@ -128,41 +126,85 @@ function DailyBar({
         className="relative w-full flex flex-col justify-end items-center"
         style={{ height: `${maxHeight}px` }}
       >
-        {/* Target line (seuil) */}
-        <div
-          className="absolute left-0 right-0 h-[2px] bg-blue-400 z-10"
-          style={{ bottom: `${targetLinePosition}px` }}
-        />
+        {/* Target line (seuil) - not shown on last day balance bar */}
+        {!isLastDay && (
+          <div
+            className="absolute left-0 right-0 h-[2px] bg-blue-400 z-10"
+            style={{ bottom: `${targetLinePosition}px` }}
+          />
+        )}
 
         {/* Bar */}
         <div className="relative w-8 flex flex-col justify-end items-center">
-          {/* Overflow section (above target) - Orange/Red */}
-          {overflowHeight > 0 && (
-            <motion.div
-              initial={{ height: 0 }}
-              animate={{ height: `${overflowHeight}px` }}
-              transition={{ duration: 0.5, delay: index * 0.05 + 0.3 }}
-              className="w-full bg-gradient-to-t from-orange-400 to-orange-500 rounded-t-sm"
-              style={{ marginBottom: `-${overflowHeight}px`, position: 'relative', zIndex: 5 }}
-            />
-          )}
+          {isLastDay ? (
+            /* Last day: show theoretical target + balance adjustment */
+            <>
+              {/* Balance bar above/below target */}
+              {cumulativeBalance > 0 && (
+                /* Positive balance: Blue bar ABOVE the green target bar */
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: `${Math.min(Math.abs(cumulativeBalance) / target * targetLinePosition * 0.5, maxHeight - targetLinePosition)}px` }}
+                  transition={{ duration: 0.6, delay: 0.4 }}
+                  className="w-full bg-gradient-to-t from-blue-400 to-blue-500 rounded-t-sm"
+                  style={{ position: 'relative', zIndex: 5 }}
+                />
+              )}
 
-          {/* Main bar - Green */}
-          <motion.div
-            initial={{ height: 0 }}
-            animate={{ height: `${Math.min(barHeight, targetLinePosition)}px` }}
-            transition={{ duration: 0.5, delay: index * 0.05 }}
-            className={cn(
-              'w-full rounded-sm',
-              isEmpty ? 'bg-gray-200' : 'bg-gradient-to-t from-emerald-400 to-emerald-500',
-              isToday && 'ring-2 ring-offset-1 ring-blue-500',
-              isLastDay && !isToday && 'ring-2 ring-offset-1 ring-orange-400'
-            )}
-          />
+              {/* Green bar at target level (theoretical 2000 kcal) */}
+              <motion.div
+                initial={{ height: 0 }}
+                animate={{ height: `${cumulativeBalance < 0
+                  ? Math.max(targetLinePosition - Math.abs(cumulativeBalance) / target * targetLinePosition * 0.5, targetLinePosition * 0.3)
+                  : targetLinePosition}px` }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-sm"
+              />
+
+              {/* Negative balance: Orange section eating into the green */}
+              {cumulativeBalance < 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className="absolute w-full bg-gradient-to-t from-orange-400 to-orange-500 rounded-t-sm"
+                  style={{
+                    height: `${Math.min(Math.abs(cumulativeBalance) / target * targetLinePosition * 0.5, targetLinePosition * 0.7)}px`,
+                    bottom: `${Math.max(targetLinePosition - Math.abs(cumulativeBalance) / target * targetLinePosition * 0.5, targetLinePosition * 0.3)}px`,
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {/* Overflow section (above target) - Orange/Red */}
+              {overflowHeight > 0 && (
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: `${overflowHeight}px` }}
+                  transition={{ duration: 0.5, delay: index * 0.05 + 0.3 }}
+                  className="w-full bg-gradient-to-t from-orange-400 to-orange-500 rounded-t-sm"
+                  style={{ marginBottom: `-${overflowHeight}px`, position: 'relative', zIndex: 5 }}
+                />
+              )}
+
+              {/* Main bar - Green */}
+              <motion.div
+                initial={{ height: 0 }}
+                animate={{ height: `${Math.min(barHeight, targetLinePosition)}px` }}
+                transition={{ duration: 0.5, delay: index * 0.05 }}
+                className={cn(
+                  'w-full rounded-sm',
+                  isEmpty ? 'bg-gray-200' : 'bg-gradient-to-t from-emerald-400 to-emerald-500',
+                  isToday && 'ring-2 ring-offset-1 ring-blue-500'
+                )}
+              />
+            </>
+          )}
         </div>
 
         {/* Over target indicator - Blue bar on top */}
-        {isOver && (
+        {isOver && !isLastDay && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -180,9 +222,9 @@ function DailyBar({
       <span className={cn(
         'text-[10px] font-medium',
         isToday ? 'text-blue-600 font-bold' : 'text-gray-500',
-        isLastDay && !isToday && 'text-orange-600 font-bold'
+        isLastDay && !isToday && (cumulativeBalance > 0 ? 'text-blue-600 font-bold' : 'text-orange-600 font-bold')
       )}>
-        {day.dayLabel}
+        {isLastDay ? 'Solde' : day.dayLabel}
       </span>
     </motion.div>
   );
