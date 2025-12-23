@@ -320,6 +320,12 @@ export default function HomePage() {
             todayConsumed={caloricBalance.todayConsumed}
             canUsePleasureCredit={caloricBalance.canUsePleasureCredit}
             message={caloricBalance.message}
+            lastResetDate={caloricBalance.lastResetDate}
+            onReset={caloricBalance.resetBalance}
+            canReset={caloricBalance.canReset}
+            daysUntilReset={caloricBalance.daysUntilReset}
+            reportDay={caloricBalance.reportDay}
+            onReportDayChange={caloricBalance.setReportDay}
           />
         </section>
 

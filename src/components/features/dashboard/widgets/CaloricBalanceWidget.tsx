@@ -15,12 +15,17 @@ import {
   Info,
   Zap,
   AlertTriangle,
+  RotateCcw,
+  Calendar,
 } from 'lucide-react';
 import type { DailyBalance } from '@/lib/caloric-balance';
 
 // Plafond maximum du solde calorique (environ 0.5kg de graisse = 3850 kcal)
 // On limite à 3500 kcal pour éviter les excès lors de l'utilisation
 const MAX_CALORIC_BALANCE = 3500;
+
+// Report day options
+type ReportDay = 6 | 7;
 
 interface CaloricBalanceWidgetProps {
   availableBalance: number;
@@ -37,6 +42,12 @@ interface CaloricBalanceWidgetProps {
     ctaText: string;
   };
   className?: string;
+  lastResetDate?: string | null;
+  onReset?: () => void;
+  canReset?: boolean;
+  daysUntilReset?: number;
+  reportDay?: ReportDay;
+  onReportDayChange?: (day: ReportDay) => void;
 }
 
 // Daily bar component showing consumption vs target
@@ -45,11 +56,15 @@ function DailyBar({
   index,
   target,
   isToday,
+  isReportDay,
+  totalBalance,
 }: {
   day: DailyBalance;
   index: number;
   target: number;
   isToday: boolean;
+  isReportDay: boolean;
+  totalBalance: number;
 }) {
   const consumed = day.consumed;
   const percentage = target > 0 ? (consumed / target) * 100 : 0;
@@ -61,12 +76,15 @@ function DailyBar({
   const barHeight = Math.min(percentage, 150); // Cap at 150% for display
   const overflowHeight = percentage > 100 ? Math.min(percentage - 100, 50) : 0;
 
+  // For the report day, show the total balance
+  const cappedTotalBalance = Math.min(totalBalance, MAX_CALORIC_BALANCE);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className="flex flex-col items-center gap-1 flex-1"
+      className="flex flex-col items-center gap-1 flex-1 relative"
     >
       {/* Bar container */}
       <div className="relative w-full h-24 flex flex-col justify-end items-center">
@@ -98,7 +116,8 @@ function DailyBar({
               isUnder && 'bg-gradient-to-t from-emerald-400 to-emerald-500',
               isOver && !isEmpty && 'bg-gradient-to-t from-amber-400 to-amber-500',
               consumed === target && 'bg-gradient-to-t from-blue-400 to-blue-500',
-              isToday && 'ring-2 ring-offset-1 ring-blue-400'
+              isToday && 'ring-2 ring-offset-1 ring-blue-400',
+              isReportDay && !isToday && 'ring-2 ring-offset-1 ring-orange-400'
             )}
           />
         </div>
@@ -123,54 +142,147 @@ function DailyBar({
       {/* Day label */}
       <span className={cn(
         'text-[10px] font-medium',
-        isToday ? 'text-blue-600 font-bold' : 'text-gray-500'
+        isToday ? 'text-blue-600 font-bold' : 'text-gray-500',
+        isReportDay && !isToday && 'text-orange-600 font-bold'
       )}>
         {day.dayLabel}
       </span>
+
+      {/* Show total balance on the report day */}
+      {isReportDay && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap"
+        >
+          <div className={cn(
+            'px-2 py-0.5 rounded-full text-[9px] font-bold',
+            totalBalance > 0
+              ? 'bg-orange-100 text-orange-700'
+              : 'bg-red-100 text-red-700'
+          )}>
+            {totalBalance > 0 ? '+' : ''}{cappedTotalBalance.toLocaleString('fr-FR')}
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
 
-// Total balance display with cap
+// Report day selector component
+function ReportDaySelector({
+  reportDay,
+  onReportDayChange,
+}: {
+  reportDay: ReportDay;
+  onReportDayChange?: (day: ReportDay) => void;
+}) {
+  if (!onReportDayChange) return null;
+
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Calendar className="w-4 h-4 text-gray-400" />
+      <span className="text-xs text-gray-500">Report du solde :</span>
+      <div className="flex gap-1">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => onReportDayChange(6)}
+          className={cn(
+            'px-2 py-1 rounded-lg text-xs font-medium transition-all',
+            reportDay === 6
+              ? 'bg-orange-500 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          )}
+        >
+          J6
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => onReportDayChange(7)}
+          className={cn(
+            'px-2 py-1 rounded-lg text-xs font-medium transition-all',
+            reportDay === 7
+              ? 'bg-orange-500 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          )}
+        >
+          J7
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+
+// Total balance display with cap - Orange pastel background
 function TotalBalanceDisplay({
   balance,
   maxBalance,
+  onReset,
+  canReset,
+  daysUntilReset,
 }: {
   balance: number;
   maxBalance: number;
+  onReset?: () => void;
+  canReset?: boolean;
+  daysUntilReset?: number;
 }) {
   const cappedBalance = Math.min(balance, maxBalance);
   const isAtMax = balance >= maxBalance;
   const percentage = (cappedBalance / maxBalance) * 100;
 
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-4 text-white">
+    <div className="bg-gradient-to-br from-orange-50 to-amber-100 rounded-2xl p-4 border border-orange-200">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Zap className="w-5 h-5 text-yellow-400" />
-          <span className="text-sm font-medium text-gray-300">Solde total</span>
+          <Zap className="w-5 h-5 text-orange-500" />
+          <span className="text-sm font-medium text-orange-700">Solde total</span>
         </div>
-        {isAtMax && (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/20 rounded-full">
-            <AlertTriangle className="w-3 h-3 text-amber-400" />
-            <span className="text-[10px] text-amber-400 font-medium">MAX</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {isAtMax && (
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-200 rounded-full">
+              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <span className="text-[10px] text-amber-600 font-medium">MAX</span>
+            </div>
+          )}
+          {/* Reset button */}
+          {onReset && (
+            <motion.button
+              whileHover={{ scale: canReset ? 1.05 : 1 }}
+              whileTap={{ scale: canReset ? 0.95 : 1 }}
+              onClick={canReset ? onReset : undefined}
+              disabled={!canReset}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all',
+                canReset
+                  ? 'bg-orange-200 text-orange-700 hover:bg-orange-300 cursor-pointer'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              )}
+              title={canReset ? 'Réinitialiser le solde' : `Disponible dans ${daysUntilReset} jour(s)`}
+            >
+              <RotateCcw className="w-3 h-3" />
+              {canReset ? 'Reset' : `${daysUntilReset}j`}
+            </motion.button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-end gap-2 mb-3">
         <motion.span
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="text-4xl font-bold"
+          className="text-4xl font-bold text-orange-800"
         >
           {cappedBalance.toLocaleString('fr-FR')}
         </motion.span>
-        <span className="text-gray-400 text-sm mb-1">/ {maxBalance.toLocaleString('fr-FR')} kcal</span>
+        <span className="text-orange-600 text-sm mb-1">/ {maxBalance.toLocaleString('fr-FR')} kcal</span>
       </div>
 
       {/* Progress bar */}
-      <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-2 bg-orange-200 rounded-full overflow-hidden">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
@@ -178,15 +290,21 @@ function TotalBalanceDisplay({
           className={cn(
             'h-full rounded-full',
             isAtMax
-              ? 'bg-gradient-to-r from-amber-400 to-yellow-400'
-              : 'bg-gradient-to-r from-emerald-400 to-teal-400'
+              ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
+              : 'bg-gradient-to-r from-orange-400 to-amber-500'
           )}
         />
       </div>
 
       {isAtMax && (
-        <p className="text-[10px] text-amber-400 mt-2">
+        <p className="text-[10px] text-amber-600 mt-2">
           Solde plafonné pour éviter les excès. Utilise-le !
+        </p>
+      )}
+
+      {!canReset && daysUntilReset && daysUntilReset > 0 && (
+        <p className="text-[10px] text-orange-500 mt-2">
+          Réinitialisation possible dans {daysUntilReset} jour{daysUntilReset > 1 ? 's' : ''}
         </p>
       )}
     </div>
@@ -285,6 +403,11 @@ export function CaloricBalanceWidget({
   canUsePleasureCredit,
   message,
   className,
+  onReset,
+  canReset,
+  daysUntilReset,
+  reportDay = 7,
+  onReportDayChange,
 }: CaloricBalanceWidgetProps) {
   const router = useRouter();
   const [showDetails, setShowDetails] = useState(false);
@@ -296,8 +419,11 @@ export function CaloricBalanceWidget({
     router.push('/meals/add?tab=ai&mode=pleasure');
   };
 
-  // Find today's index in the history
+  // Find today's index in the history (last day = index 6 for J7)
   const todayIndex = weeklyHistory.length - 1;
+
+  // Calculate report day index (J6 = index 5, J7 = index 6)
+  const reportDayIndex = reportDay - 1; // J6 = 5, J7 = 6
 
   return (
     <motion.div
@@ -305,7 +431,7 @@ export function CaloricBalanceWidget({
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         'rounded-3xl overflow-hidden',
-        'bg-gradient-to-br from-white via-gray-50 to-emerald-50/30',
+        'bg-gradient-to-br from-white via-gray-50 to-orange-50/30',
         'border border-gray-100',
         'shadow-xl shadow-gray-200/50',
         className
@@ -315,7 +441,7 @@ export function CaloricBalanceWidget({
       <div className="px-5 pt-5 pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/30">
               <Target className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -333,9 +459,9 @@ export function CaloricBalanceWidget({
       </div>
 
       {/* Weekly bars chart */}
-      <div className="px-5 pb-4">
-        <div className="bg-gray-50 rounded-2xl p-4">
-          {/* Legend */}
+      <div className="px-5 pb-6">
+        <div className="bg-gray-50 rounded-2xl p-4 pb-8">
+          {/* Legend and report day selector */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3 text-[10px]">
               <div className="flex items-center gap-1">
@@ -353,8 +479,11 @@ export function CaloricBalanceWidget({
             </div>
           </div>
 
+          {/* Report day selector */}
+          <ReportDaySelector reportDay={reportDay} onReportDayChange={onReportDayChange} />
+
           {/* Bars */}
-          <div className="flex items-end gap-1">
+          <div className="flex items-end gap-1 relative">
             {weeklyHistory.map((day, index) => (
               <DailyBar
                 key={day.date}
@@ -362,6 +491,8 @@ export function CaloricBalanceWidget({
                 index={index}
                 target={todayTarget}
                 isToday={index === todayIndex}
+                isReportDay={index === reportDayIndex}
+                totalBalance={availableBalance}
               />
             ))}
           </div>
@@ -370,7 +501,13 @@ export function CaloricBalanceWidget({
 
       {/* Total balance display */}
       <div className="px-5 pb-4">
-        <TotalBalanceDisplay balance={availableBalance} maxBalance={MAX_CALORIC_BALANCE} />
+        <TotalBalanceDisplay
+          balance={availableBalance}
+          maxBalance={MAX_CALORIC_BALANCE}
+          onReset={onReset}
+          canReset={canReset}
+          daysUntilReset={daysUntilReset}
+        />
       </div>
 
       {/* Impact badge */}
@@ -410,7 +547,7 @@ export function CaloricBalanceWidget({
                 <p className="text-xs text-blue-800">
                   <strong>Comment ça marche ?</strong> Les barres montrent ta consommation quotidienne
                   par rapport à ton seuil. En vert = sous le seuil (tu économises). En rouge = au-dessus.
-                  Le solde est plafonné à {MAX_CALORIC_BALANCE.toLocaleString('fr-FR')} kcal pour éviter les excès.
+                  Le solde est reporté sur J{reportDay} et plafonné à {MAX_CALORIC_BALANCE.toLocaleString('fr-FR')} kcal.
                 </p>
               </div>
             </div>
