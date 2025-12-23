@@ -1,7 +1,6 @@
 'use server';
 
 import { v2 as cloudinary } from 'cloudinary';
-import { models, isAIAvailable } from '@/lib/ai/config';
 import { COACH_SYSTEM_PROMPT, MEAL_PLANNER_SYSTEM_PROMPT, MEAL_TYPE_GUIDELINES, IMAGE_GENERATION_PROMPT_TEMPLATE } from '@/lib/ai/prompts';
 import { generateUserProfileContext } from '@/lib/ai/user-context';
 import type { UserProfile } from '@/types/user';
@@ -13,6 +12,11 @@ cloudinary.config({
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// Check if OpenAI is available
+function isOpenAIAvailable(): boolean {
+    return !!process.env.OPENAI_API_KEY;
+}
 
 /**
  * Upload image to Cloudinary permanent storage
@@ -46,22 +50,48 @@ async function uploadImageToStorage(tempUrl: string, filename: string): Promise<
     }
 }
 
-// Helper function to extract text from Vertex AI response
-function extractTextFromResponse(response: any): string {
-    // Try the text() method first (if available)
-    if (typeof response.text === 'function') {
-        return response.text();
-    }
-    // Fallback to candidates structure
-    if (response.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return response.candidates[0].content.parts[0].text;
-    }
-    throw new Error('Unable to extract text from response');
-}
-
 // Clean JSON from markdown code blocks
 function cleanJsonResponse(text: string): string {
     return text.replace(/```json\n?|\n?```/g, "").trim();
+}
+
+/**
+ * Call OpenAI Chat API
+ */
+async function callOpenAI(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    model: string = 'gpt-4o-mini',
+    maxTokens: number = 2000,
+    temperature: number = 0.7
+): Promise<string> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: maxTokens,
+            temperature,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('OpenAI API error:', response.status, errorData);
+        throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (!text) {
+        throw new Error('No response from OpenAI');
+    }
+
+    return text;
 }
 
 /**
@@ -76,10 +106,10 @@ export async function chatWithCoach(
     userProfile?: UserProfile
 ) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -104,22 +134,14 @@ DONNÉES NUTRITIONNELLES AUJOURD'HUI:
 `;
         }
 
-        const chat = models.pro.startChat({
-            history: [
-                {
-                    role: "user",
-                    parts: [{ text: `System Context: ${COACH_SYSTEM_PROMPT}\n\n${profileContext}\n\n${nutritionContext}` }],
-                },
-                {
-                    role: "model",
-                    parts: [{ text: "Compris. Je suis prêt à vous aider en tant que coach nutritionnel personnalisé." }],
-                },
-            ],
-        });
+        const systemPrompt = `${COACH_SYSTEM_PROMPT}\n\n${profileContext}\n\n${nutritionContext}`;
 
-        const result = await chat.sendMessage(message);
-        const response = result.response;
-        return { success: true, message: extractTextFromResponse(response) };
+        const response = await callOpenAI([
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message }
+        ], 'gpt-4o-mini', 1000, 0.7);
+
+        return { success: true, message: response };
     } catch (error) {
         console.error("Error in chatWithCoach:", error);
         return { success: false, error: "Impossible d'obtenir une réponse du coach" };
@@ -131,10 +153,10 @@ DONNÉES NUTRITIONNELLES AUJOURD'HUI:
  */
 export async function generateRecipe(request: string, userProfile?: UserProfile) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -178,10 +200,11 @@ Réponds UNIQUEMENT avec un JSON valide avec cette structure exacte:
 }
 `;
 
-        const result = await models.flash.generateContent(prompt);
-        const response = result.response;
-        const text = extractTextFromResponse(response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI([
+            { role: 'user', content: prompt }
+        ], 'gpt-4o-mini', 2000, 0.3);
+
+        const jsonStr = cleanJsonResponse(response);
         const recipe = JSON.parse(jsonStr);
 
         return { success: true, recipe };
@@ -201,10 +224,10 @@ export async function suggestRecipe(context: {
     userProfile?: UserProfile;
 }) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -280,10 +303,11 @@ Réponds UNIQUEMENT avec un JSON valide avec cette structure exacte:
 }
 `;
 
-        const result = await models.pro.generateContent(prompt);
-        const response = result.response;
-        const text = extractTextFromResponse(response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI([
+            { role: 'user', content: prompt }
+        ], 'gpt-4o', 2000, 0.3);
+
+        const jsonStr = cleanJsonResponse(response);
         const recipe = JSON.parse(jsonStr);
 
         return { success: true, recipe };
@@ -378,10 +402,10 @@ export async function generateRecipeDetails(meal: {
     type: string;
 }, userProfile?: UserProfile) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -443,10 +467,11 @@ Réponds UNIQUEMENT avec ce JSON (pas de texte avant ou après):
 }
 `;
 
-        const result = await models.pro.generateContent(prompt);
-        const response = result.response;
-        const text = extractTextFromResponse(response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI([
+            { role: 'user', content: prompt }
+        ], 'gpt-4o', 2000, 0.3);
+
+        const jsonStr = cleanJsonResponse(response);
         const recipe = JSON.parse(jsonStr);
 
         // Validate and ensure minimum content
@@ -473,10 +498,10 @@ export async function generateRecipeSuggestions(
     userProfile?: UserProfile
 ) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -515,10 +540,11 @@ Réponds UNIQUEMENT avec un JSON valide:
 }
 `;
 
-        const result = await models.flash.generateContent(prompt);
-        const response = result.response;
-        const text = extractTextFromResponse(response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI([
+            { role: 'user', content: prompt }
+        ], 'gpt-4o-mini', 2000, 0.5);
+
+        const jsonStr = cleanJsonResponse(response);
         const data = JSON.parse(jsonStr);
 
         return { success: true, suggestions: data.suggestions || [] };
@@ -578,7 +604,7 @@ export async function generateProactiveInsights(
     context: UserContext
 ): Promise<{ success: boolean; insights?: ProactiveInsight[]; error?: string }> {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             // Fallback to rule-based insights if AI is not available
             return { success: true, insights: generateRuleBasedInsights(context) };
         }
@@ -667,10 +693,11 @@ Réponds UNIQUEMENT avec un JSON valide:
   ]
 }`;
 
-        const result = await models.flash.generateContent(prompt);
-        const response = result.response;
-        const text = extractTextFromResponse(response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI([
+            { role: 'user', content: prompt }
+        ], 'gpt-4o-mini', 1500, 0.5);
+
+        const jsonStr = cleanJsonResponse(response);
         const data = JSON.parse(jsonStr);
 
         // Combine AI insights with rule-based insights

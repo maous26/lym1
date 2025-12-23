@@ -1,25 +1,57 @@
 'use server';
 
-import { models, isAIAvailable } from '@/lib/ai/config';
 import { MEAL_PLANNER_SYSTEM_PROMPT, MEAL_TYPE_GUIDELINES, SIMPLE_RECIPE_GUIDELINES } from '@/lib/ai/prompts';
 import { getRandomTheme, getSeasonalTheme } from '@/lib/ai/themes';
 import { generateUserProfileContext } from '@/lib/ai/user-context';
 import type { UserProfile, FastingSchedule } from '@/types/user';
 
-// Helper function to extract text from Vertex AI response
-function extractTextFromResponse(response: any): string {
-    if (typeof response.text === 'function') {
-        return response.text();
-    }
-    if (response.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return response.candidates[0].content.parts[0].text;
-    }
-    throw new Error('Unable to extract text from response');
+// Check if OpenAI is available
+function isOpenAIAvailable(): boolean {
+    return !!process.env.OPENAI_API_KEY;
 }
 
 // Clean JSON from markdown code blocks
 function cleanJsonResponse(text: string): string {
     return text.replace(/```json\n?|\n?```/g, "").trim();
+}
+
+/**
+ * Call OpenAI Chat API
+ */
+async function callOpenAI(
+    prompt: string,
+    model: string = 'gpt-4o-mini',
+    maxTokens: number = 2000,
+    temperature: number = 0.3
+): Promise<string> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: maxTokens,
+            temperature,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('OpenAI API error:', response.status, errorData);
+        throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (!text) {
+        throw new Error('No response from OpenAI');
+    }
+
+    return text;
 }
 
 export interface WeeklyPlanPreferences {
@@ -72,10 +104,10 @@ export async function generateWeeklyPlanWithDetails(
     userProfile?: UserProfile
 ): Promise<{ success: boolean; plan?: WeeklyPlan; error?: string }> {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
@@ -216,9 +248,8 @@ Réponds UNIQUEMENT avec un JSON valide:
 `;
 
     try {
-        const result = await models.flash.generateContent(prompt);
-        const text = extractTextFromResponse(result.response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI(prompt, 'gpt-4o-mini', 1000, 0.5);
+        const jsonStr = cleanJsonResponse(response);
         const recipe = JSON.parse(jsonStr);
 
         return {
@@ -309,9 +340,8 @@ Réponds UNIQUEMENT avec un JSON valide:
 `;
 
     try {
-        const result = await models.flash.generateContent(prompt);
-        const text = extractTextFromResponse(result.response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI(prompt, 'gpt-4o-mini', 1000, 0.3);
+        const jsonStr = cleanJsonResponse(response);
         const recipe = JSON.parse(jsonStr);
 
         return {
@@ -383,7 +413,7 @@ export async function regenerateDayPlan(
     userProfile?: UserProfile
 ): Promise<{ success: boolean; dayPlan?: MealPlanDay; error?: string }> {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
                 error: "L'IA n'est pas configurée."
@@ -478,7 +508,7 @@ export async function regenerateDayPlan(
  */
 export async function generateShoppingList(weeklyPlan: WeeklyPlan, budget?: number) {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
                 error: "L'IA n'est pas configurée."
@@ -554,18 +584,17 @@ Réponds UNIQUEMENT avec ce JSON (pas de texte avant ou après):
 }
 `;
 
-        const result = await models.pro.generateContent(prompt);
-        const text = extractTextFromResponse(result.response);
-        const jsonStr = cleanJsonResponse(text);
+        const response = await callOpenAI(prompt, 'gpt-4o', 3000, 0.3);
+        const jsonStr = cleanJsonResponse(response);
 
         let shoppingList;
         try {
             shoppingList = JSON.parse(jsonStr);
         } catch (parseError) {
             console.error("JSON parse error:", parseError);
-            console.log("Raw response:", text);
+            console.log("Raw response:", response);
             // Try to extract JSON from response
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 shoppingList = JSON.parse(jsonMatch[0]);
             } else {

@@ -3,10 +3,53 @@
 import prisma from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { models, isAIAvailable } from '@/lib/ai/config';
 import { awardXp, incrementStat, updateStreak } from './gamification';
 import { XP_REWARDS } from '@/lib/gamification-utils';
 import { generateFoodImage } from './ai';
+
+// Check if OpenAI is available
+function isOpenAIAvailable(): boolean {
+    return !!process.env.OPENAI_API_KEY;
+}
+
+/**
+ * Call OpenAI Chat API
+ */
+async function callOpenAI(
+    prompt: string,
+    model: string = 'gpt-4o',
+    maxTokens: number = 2000,
+    temperature: number = 0.3
+): Promise<string> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: maxTokens,
+            temperature,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('OpenAI API error:', response.status, errorData);
+        throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (!text) {
+        throw new Error('No response from OpenAI');
+    }
+
+    return text;
+}
 
 // ============================================
 // TYPES
@@ -371,7 +414,7 @@ function cleanJsonResponse(text: string): string {
 }
 
 async function extractRecipeFromTranscript(transcript: string, videoUrl: string): Promise<ExtractedRecipe> {
-    if (!isAIAvailable()) {
+    if (!isOpenAIAvailable()) {
         throw new Error("L'IA n'est pas configurée");
     }
 
@@ -428,18 +471,7 @@ Réponds UNIQUEMENT avec ce JSON:
   "tags": ["tag1", "tag2"]
 }`;
 
-    const result = await models.pro.generateContent(prompt);
-    const response = result.response;
-
-    // Extract text from response
-    let text: string;
-    if (typeof response.text === 'function') {
-        text = response.text();
-    } else if (response.candidates?.[0]?.content?.parts?.[0]?.text) {
-        text = response.candidates[0].content.parts[0].text;
-    } else {
-        throw new Error('Impossible d\'extraire la réponse de l\'IA');
-    }
+    const text = await callOpenAI(prompt, 'gpt-4o', 2000, 0.3);
 
     const jsonStr = cleanJsonResponse(text);
 
