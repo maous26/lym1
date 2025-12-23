@@ -429,7 +429,7 @@ async function extractRecipeFromTranscript(transcript: string, videoUrl: string)
     console.log('Cleaned transcript length:', cleanedTranscript.length);
     console.log('Cleaned transcript preview:', cleanedTranscript.substring(0, 300));
 
-    const prompt = `Tu es un assistant culinaire expert. Analyse ce transcript de vidéo YouTube et extrais la recette EXACTE qui y est présentée.
+    const prompt = `Tu es un assistant culinaire expert et nutritionniste. Analyse ce transcript de vidéo YouTube et extrais la recette EXACTE qui y est présentée.
 
 TRANSCRIPT DE LA VIDÉO:
 """
@@ -438,10 +438,26 @@ ${cleanedTranscript}
 
 RÈGLES STRICTES:
 1. TITRE: Utilise le nom de la recette mentionné dans le transcript. Si pas de nom explicite, crée un titre basé sur le plat principal décrit.
-2. INGRÉDIENTS: Liste UNIQUEMENT les ingrédients mentionnés dans le transcript avec leurs quantités.
+2. INGRÉDIENTS: Liste UNIQUEMENT les ingrédients mentionnés dans le transcript avec leurs quantités exactes.
 3. INSTRUCTIONS: Extrais les étapes de préparation TELLES QUE décrites dans la vidéo.
-4. NUTRITION: Calcule basé sur les ingrédients réels mentionnés.
-5. NE PAS INVENTER: Si une information n'est pas dans le transcript, mets une valeur raisonnable mais basée sur le contexte du transcript.
+4. SERVINGS: Estime le nombre de portions que la recette produit (généralement 4-6 pour une recette familiale, 2-4 pour une recette simple).
+5. NE PAS INVENTER: Si une information n'est pas dans le transcript, mets une valeur raisonnable basée sur le contexte.
+
+CALCUL NUTRITIONNEL - TRÈS IMPORTANT:
+- Les valeurs nutritionnelles doivent être PAR PORTION (divise le total par le nombre de portions)
+- Calcule PRÉCISÉMENT en utilisant ces valeurs de référence:
+  * Beurre: 750 kcal/100g, 82g lipides
+  * Huile (olive, tournesol, friture): 900 kcal/100g, 100g lipides
+  * Farine: 350 kcal/100g, 75g glucides
+  * Sucre: 400 kcal/100g, 100g glucides
+  * Œuf entier: 155 kcal/100g (~75 kcal par œuf), 13g protéines, 11g lipides
+  * Chocolat noir: 550 kcal/100g, 35g lipides, 50g glucides
+  * Crème fraîche: 300 kcal/100g, 30g lipides
+  * Lait entier: 65 kcal/100ml
+  * Viande: 200-250 kcal/100g
+  * Poisson: 100-200 kcal/100g
+- FRITURE: Si la recette implique une friture, ajoute +50-100 kcal par portion pour l'absorption d'huile
+- Exemple: Churros (55g beurre + 150g farine + 2 œufs + 80g crème + 80g chocolat + friture) pour 4 portions = environ 450-550 kcal PAR PORTION
 
 IMPORTANT: La recette doit correspondre AU CONTENU DU TRANSCRIPT, pas à une recette générique.
 
@@ -458,11 +474,11 @@ Réponds UNIQUEMENT avec ce JSON:
     "Étape 2"
   ],
   "nutrition": {
-    "calories": 400,
-    "proteins": 20,
-    "carbs": 40,
-    "fats": 15,
-    "fiber": 5
+    "calories": 450,
+    "proteins": 15,
+    "carbs": 50,
+    "fats": 22,
+    "fiber": 2
   },
   "prepTime": 15,
   "cookTime": 20,
