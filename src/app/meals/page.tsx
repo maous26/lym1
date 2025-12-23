@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { CalendarDays, BookOpen, ChevronRight, ChevronLeft, Check, Flame } from 'lucide-react';
+import { CalendarDays, BookOpen, ChevronRight, ChevronLeft, Check, Flame, X, Clock, Users, Sparkles } from 'lucide-react';
 import { DateSelector } from '@/components/features/meals/DateSelector';
 import { DailyNutritionSummary } from '@/components/features/meals/DailyNutritionSummary';
 import { MealSection } from '@/components/features/meals/MealSection';
 import { useMealStore, useSelectedDateMeals } from '@/store/meal-store';
 import { useSoloProfile } from '@/store/user-store';
-import type { MealType, DailyMeals } from '@/types/meal';
+import type { MealType, MealItem, DailyMeals } from '@/types/meal';
+import { Suspense } from 'react';
 
 // Tab type
 type TabType = 'journal' | 'calendar';
@@ -23,6 +24,130 @@ const mealTypeEmojis: Record<string, string> = {
   dinner: '🌙',
 };
 
+// Recipe detail modal component
+function RecipeDetailModal({
+  item,
+  onClose,
+}: {
+  item: MealItem;
+  onClose: () => void;
+}) {
+  const nutrition = item.food.nutrition;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="w-full max-w-lg bg-white rounded-t-3xl max-h-[85vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header with image */}
+        <div className="relative h-48 bg-gradient-to-br from-purple-100 to-pink-100">
+          {item.food.imageUrl ? (
+            <img
+              src={item.food.imageUrl}
+              alt={item.food.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Sparkles className="w-16 h-16 text-purple-300" />
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg"
+          >
+            <X className="w-5 h-5 text-stone-700" />
+          </button>
+
+          {/* AI badge */}
+          <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-medium flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5" />
+            Recette IA
+          </div>
+
+          {/* Title */}
+          <div className="absolute bottom-4 left-4 right-4">
+            <h2 className="text-xl font-bold text-white">{item.food.name}</h2>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-5 overflow-y-auto max-h-[calc(85vh-12rem)]">
+          {/* Quick stats */}
+          <div className="flex items-center gap-4 mb-6 text-sm text-stone-600">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-4 h-4" />
+              <span>Rapide</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Users className="w-4 h-4" />
+              <span>{item.quantity} portion{item.quantity > 1 ? 's' : ''}</span>
+            </div>
+          </div>
+
+          {/* Nutrition grid */}
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="bg-orange-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-orange-600">
+                {Math.round(nutrition.calories * item.quantity)}
+              </p>
+              <p className="text-xs text-stone-500">kcal</p>
+            </div>
+            <div className="bg-red-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-red-600">
+                {Math.round(nutrition.proteins * item.quantity)}g
+              </p>
+              <p className="text-xs text-stone-500">Protéines</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-amber-600">
+                {Math.round(nutrition.carbs * item.quantity)}g
+              </p>
+              <p className="text-xs text-stone-500">Glucides</p>
+            </div>
+            <div className="bg-purple-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-purple-600">
+                {Math.round(nutrition.fats * item.quantity)}g
+              </p>
+              <p className="text-xs text-stone-500">Lipides</p>
+            </div>
+          </div>
+
+          {/* Serving info */}
+          <div className="bg-stone-50 rounded-xl p-4 mb-6">
+            <h3 className="font-semibold text-stone-800 mb-2">Portion</h3>
+            <p className="text-sm text-stone-600">
+              {item.customServing || item.food.serving} {item.food.servingUnit} × {item.quantity}
+            </p>
+          </div>
+
+          {/* Notes if any */}
+          {item.notes && (
+            <div className="bg-blue-50 rounded-xl p-4">
+              <h3 className="font-semibold text-stone-800 mb-2">Notes</h3>
+              <p className="text-sm text-stone-600">{item.notes}</p>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function MealsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,6 +157,7 @@ function MealsPageContent() {
     tabParam === 'calendar' ? 'calendar' : 'journal'
   );
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedRecipeItem, setSelectedRecipeItem] = useState<MealItem | null>(null);
 
   // Update tab when URL param changes
   useEffect(() => {
@@ -47,6 +173,7 @@ function MealsPageContent() {
   const goToNextDay = useMealStore((state) => state.goToNextDay);
   const goToToday = useMealStore((state) => state.goToToday);
   const deleteMeal = useMealStore((state) => state.deleteMeal);
+  const deleteMealItem = useMealStore((state) => state.deleteMealItem);
   const meals = useMealStore((state) => state.meals);
   const dailyMeals = useSelectedDateMeals();
 
@@ -162,6 +289,19 @@ function MealsPageContent() {
 
   const handleFeedback = (mealType: MealType, positive: boolean) => {
     console.log(`Feedback for ${mealType}: ${positive ? 'positive' : 'negative'}`);
+  };
+
+  const handleDeleteItem = (mealType: MealType, itemId: string) => {
+    if (confirm('Supprimer cet élément ?')) {
+      deleteMealItem(selectedDate, mealType, itemId);
+    }
+  };
+
+  const handleItemClick = (item: MealItem) => {
+    // Only show modal for AI/recipe items
+    if (item.food.source === 'ai' || item.food.source === 'recipe') {
+      setSelectedRecipeItem(item);
+    }
   };
 
   const handleCalendarDayClick = (date: Date) => {
@@ -292,7 +432,10 @@ function MealsPageContent() {
                 onAddMeal={() => handleAddMeal('breakfast')}
                 onViewMeal={() => handleViewMeal('breakfast')}
                 onDeleteMeal={() => handleDeleteMeal('breakfast')}
+                onDeleteItem={(itemId) => handleDeleteItem('breakfast', itemId)}
+                onItemClick={handleItemClick}
                 onFeedback={(positive) => handleFeedback('breakfast', positive)}
+                showDeleteButtons={true}
               />
 
               <MealSection
@@ -301,7 +444,10 @@ function MealsPageContent() {
                 onAddMeal={() => handleAddMeal('lunch')}
                 onViewMeal={() => handleViewMeal('lunch')}
                 onDeleteMeal={() => handleDeleteMeal('lunch')}
+                onDeleteItem={(itemId) => handleDeleteItem('lunch', itemId)}
+                onItemClick={handleItemClick}
                 onFeedback={(positive) => handleFeedback('lunch', positive)}
+                showDeleteButtons={true}
               />
 
               <MealSection
@@ -310,7 +456,10 @@ function MealsPageContent() {
                 onAddMeal={() => handleAddMeal('snack')}
                 onViewMeal={() => handleViewMeal('snack')}
                 onDeleteMeal={() => handleDeleteMeal('snack')}
+                onDeleteItem={(itemId) => handleDeleteItem('snack', itemId)}
+                onItemClick={handleItemClick}
                 onFeedback={(positive) => handleFeedback('snack', positive)}
+                showDeleteButtons={true}
               />
 
               <MealSection
@@ -319,7 +468,10 @@ function MealsPageContent() {
                 onAddMeal={() => handleAddMeal('dinner')}
                 onViewMeal={() => handleViewMeal('dinner')}
                 onDeleteMeal={() => handleDeleteMeal('dinner')}
+                onDeleteItem={(itemId) => handleDeleteItem('dinner', itemId)}
+                onItemClick={handleItemClick}
                 onFeedback={(positive) => handleFeedback('dinner', positive)}
+                showDeleteButtons={true}
               />
             </div>
 
@@ -558,6 +710,15 @@ function MealsPageContent() {
         ) : null}
       </AnimatePresence>
 
+      {/* Recipe detail modal */}
+      <AnimatePresence>
+        {selectedRecipeItem && (
+          <RecipeDetailModal
+            item={selectedRecipeItem}
+            onClose={() => setSelectedRecipeItem(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

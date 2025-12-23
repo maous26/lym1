@@ -49,6 +49,7 @@ interface MealActions {
   addMeal: (meal: Meal) => void;
   updateMeal: (mealId: string, updates: Partial<Meal>) => void;
   deleteMeal: (date: string, mealType: MealType) => void;
+  deleteMealItem: (date: string, mealType: MealType, itemId: string) => void;
 
   // Database sync
   syncFromDatabase: () => Promise<void>;
@@ -376,6 +377,127 @@ export const useMealStore = create<MealState & MealActions>()(
         deleteMealFromDb(date, mealType).catch((err) =>
           console.error('Error deleting meal from database:', err)
         );
+      },
+
+      deleteMealItem: (date, mealType, itemId) => {
+        set((state) => {
+          const dailyMeals = state.meals[date];
+          if (!dailyMeals) return state;
+
+          const meal = dailyMeals[mealType];
+          if (!meal) return state;
+
+          // Filter out the item
+          const updatedItems = meal.items.filter((item) => item.id !== itemId);
+
+          // If no items left, delete the whole meal
+          if (updatedItems.length === 0) {
+            const updated = { ...dailyMeals };
+            delete updated[mealType];
+
+            // Recalculate total nutrition for the day
+            const allMeals = [
+              updated.breakfast,
+              updated.lunch,
+              updated.snack,
+              updated.dinner,
+            ].filter(Boolean) as Meal[];
+
+            updated.totalNutrition = allMeals.reduce(
+              (total, m) => ({
+                calories: total.calories + m.totalNutrition.calories,
+                proteins: total.proteins + m.totalNutrition.proteins,
+                carbs: total.carbs + m.totalNutrition.carbs,
+                fats: total.fats + m.totalNutrition.fats,
+              }),
+              { calories: 0, proteins: 0, carbs: 0, fats: 0 }
+            );
+
+            // Sync deletion to database
+            deleteMealFromDb(date, mealType).catch((err) =>
+              console.error('Error deleting meal from database:', err)
+            );
+
+            return {
+              meals: {
+                ...state.meals,
+                [date]: updated,
+              },
+            };
+          }
+
+          // Recalculate meal nutrition
+          const updatedNutrition = calculateTotalNutrition(updatedItems);
+
+          const updatedMeal: Meal = {
+            ...meal,
+            items: updatedItems,
+            totalNutrition: updatedNutrition,
+            updatedAt: new Date().toISOString(),
+          };
+
+          const updated = {
+            ...dailyMeals,
+            [mealType]: updatedMeal,
+          };
+
+          // Recalculate total nutrition for the day
+          const allMeals = [
+            updated.breakfast,
+            updated.lunch,
+            updated.snack,
+            updated.dinner,
+          ].filter(Boolean) as Meal[];
+
+          updated.totalNutrition = allMeals.reduce(
+            (total, m) => ({
+              calories: total.calories + m.totalNutrition.calories,
+              proteins: total.proteins + m.totalNutrition.proteins,
+              carbs: total.carbs + m.totalNutrition.carbs,
+              fats: total.fats + m.totalNutrition.fats,
+            }),
+            { calories: 0, proteins: 0, carbs: 0, fats: 0 }
+          );
+
+          // Sync updated meal to database
+          const dbMeal: MealData = {
+            id: updatedMeal.id,
+            type: updatedMeal.type,
+            date: updatedMeal.date,
+            time: updatedMeal.time,
+            calories: updatedMeal.totalNutrition.calories,
+            proteins: updatedMeal.totalNutrition.proteins,
+            carbs: updatedMeal.totalNutrition.carbs,
+            fats: updatedMeal.totalNutrition.fats,
+            fiber: updatedMeal.totalNutrition.fiber,
+            sugar: updatedMeal.totalNutrition.sugar,
+            sodium: updatedMeal.totalNutrition.sodium,
+            source: updatedMeal.source || 'manual',
+            isPlanned: updatedMeal.isPlanned,
+            items: updatedItems.map((item) => ({
+              id: item.id,
+              name: item.food.name,
+              quantity: item.quantity,
+              unit: item.food.servingUnit || 'g',
+              calories: item.food.nutrition.calories * item.quantity,
+              proteins: item.food.nutrition.proteins * item.quantity,
+              carbs: item.food.nutrition.carbs * item.quantity,
+              fats: item.food.nutrition.fats * item.quantity,
+              foodId: item.food.id,
+            })),
+          };
+
+          saveMeal(dbMeal).catch((err) =>
+            console.error('Error updating meal in database:', err)
+          );
+
+          return {
+            meals: {
+              ...state.meals,
+              [date]: updated,
+            },
+          };
+        });
       },
 
       // Add meal flow
