@@ -347,18 +347,19 @@ export async function generateFoodImage(description: string): Promise<{ success:
                 const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
                 // Initialize Vertex AI client with proper credentials
-                const clientOptions: { apiEndpoint: string; credentials?: { client_email: string; private_key: string } } = {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const clientOptions: any = {
                     apiEndpoint: `${location}-aiplatform.googleapis.com`,
                 };
 
-                // If GOOGLE_SERVICE_ACCOUNT_KEY is set, parse and use it
+                // If GOOGLE_SERVICE_ACCOUNT_KEY is set, parse and use it for auth
                 if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
                     try {
-                        const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-                        clientOptions.credentials = {
-                            client_email: credentials.client_email,
-                            private_key: credentials.private_key,
-                        };
+                        const serviceAccountKey = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+                        // The SDK expects 'credentials' to be the full service account object
+                        clientOptions.credentials = serviceAccountKey;
+                        clientOptions.projectId = projectId;
+                        console.log('Using service account:', serviceAccountKey.client_email);
                     } catch (parseError) {
                         console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY:', parseError);
                         throw new Error('Invalid GOOGLE_SERVICE_ACCOUNT_KEY format');
