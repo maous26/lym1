@@ -1,6 +1,5 @@
 'use server';
 
-import { models, isAIAvailable } from '@/lib/ai/config';
 import { FOOD_PHOTO_ANALYSIS_PROMPT, QUICK_FOOD_ANALYSIS_PROMPT } from '@/lib/ai/prompts';
 import type { NutritionInfo } from '@/types/meal';
 
@@ -35,13 +34,19 @@ export interface QuickAnalysisResult {
     error?: string;
 }
 
+// Check if OpenAI is available
+function isOpenAIAvailable(): boolean {
+    return !!process.env.OPENAI_API_KEY;
+}
+
 // Clean JSON from markdown code blocks
 function cleanJsonResponse(text: string): string {
     return text.replace(/```json\n?|\n?```/g, "").trim();
 }
 
 /**
- * Analyze a food photo using Gemini Vision
+ * Analyze a food photo using OpenAI GPT-4o Vision
+ * Most accurate vision model for food recognition
  * Returns detailed nutritional information about the food in the image
  */
 export async function analyzeFoodPhoto(
@@ -49,66 +54,90 @@ export async function analyzeFoodPhoto(
     mimeType: string = 'image/jpeg'
 ): Promise<FoodAnalysisResult> {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
-                error: "L'IA n'est pas configurée. Veuillez configurer GOOGLE_CLOUD_PROJECT."
+                error: "L'IA n'est pas configurée. Veuillez configurer OPENAI_API_KEY."
             };
         }
 
-        // Remove data URL prefix if present and extract mime type
-        const dataUrlMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
-        const actualMimeType = dataUrlMatch ? dataUrlMatch[1] : mimeType;
-        const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-
-        if (!base64Data || base64Data.length === 0) {
-            return {
-                success: false,
-                error: "Image invalide ou vide"
-            };
+        // Handle data URL format
+        let imageUrl: string;
+        if (imageBase64.startsWith('data:')) {
+            imageUrl = imageBase64;
+        } else {
+            // Add data URL prefix if not present
+            const cleanMimeType = mimeType.includes('/') ? mimeType : `image/${mimeType}`;
+            imageUrl = `data:${cleanMimeType};base64,${imageBase64}`;
         }
 
-        // Use Gemini for image analysis with correct Vertex AI format
-        const result = await models.pro.generateContent({
-            contents: [{
-                role: 'user',
-                parts: [
+        console.log('Analyzing food photo with GPT-4o Vision...');
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [
                     {
-                        inlineData: {
-                            mimeType: actualMimeType,
-                            data: base64Data
-                        }
-                    },
-                    { text: FOOD_PHOTO_ANALYSIS_PROMPT }
-                ]
-            }]
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: imageUrl,
+                                    detail: 'high'
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: FOOD_PHOTO_ANALYSIS_PROMPT
+                            }
+                        ]
+                    }
+                ],
+                max_tokens: 2000,
+                temperature: 0.3,
+            }),
         });
 
-        const response = result.response;
-        const text = typeof response.text === 'function'
-            ? response.text()
-            : response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('OpenAI API error:', response.status, errorData);
+            return {
+                success: false,
+                error: `Erreur API: ${response.status}`
+            };
+        }
+
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
 
         if (!text) {
             throw new Error('No response from AI');
         }
 
         const jsonStr = cleanJsonResponse(text);
-        const data = JSON.parse(jsonStr);
+        const result = JSON.parse(jsonStr);
 
-        if (!data.success) {
+        if (!result.success) {
             return {
                 success: false,
-                error: data.error || "Impossible d'analyser cette image"
+                error: result.error || "Impossible d'analyser cette image"
             };
         }
 
+        console.log('Food analysis completed:', result.foods?.length, 'items detected');
+
         return {
             success: true,
-            foods: data.foods,
-            totalNutrition: data.totalNutrition,
-            mealType: data.mealType,
-            notes: data.notes
+            foods: result.foods,
+            totalNutrition: result.totalNutrition,
+            mealType: result.mealType,
+            notes: result.notes
         };
 
     } catch (error) {
@@ -121,7 +150,7 @@ export async function analyzeFoodPhoto(
 }
 
 /**
- * Quick food analysis for faster results
+ * Quick food analysis for faster results using GPT-4o-mini
  * Returns simplified nutritional estimation
  */
 export async function quickAnalyzeFoodPhoto(
@@ -129,69 +158,90 @@ export async function quickAnalyzeFoodPhoto(
     mimeType: string = 'image/jpeg'
 ): Promise<QuickAnalysisResult> {
     try {
-        if (!isAIAvailable()) {
+        if (!isOpenAIAvailable()) {
             return {
                 success: false,
                 error: "L'IA n'est pas configurée."
             };
         }
 
-        // Remove data URL prefix if present and extract mime type
-        const dataUrlMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
-        const actualMimeType = dataUrlMatch ? dataUrlMatch[1] : mimeType;
-        const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        // Handle data URL format
+        let imageUrl: string;
+        if (imageBase64.startsWith('data:')) {
+            imageUrl = imageBase64;
+        } else {
+            const cleanMimeType = mimeType.includes('/') ? mimeType : `image/${mimeType}`;
+            imageUrl = `data:${cleanMimeType};base64,${imageBase64}`;
+        }
 
-        if (!base64Data || base64Data.length === 0) {
+        console.log('Quick analyzing food photo with GPT-4o-mini...');
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: imageUrl,
+                                    detail: 'low'
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: QUICK_FOOD_ANALYSIS_PROMPT
+                            }
+                        ]
+                    }
+                ],
+                max_tokens: 500,
+                temperature: 0.3,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('OpenAI API error:', response.status, errorData);
             return {
                 success: false,
-                error: "Image invalide ou vide"
+                error: `Erreur API: ${response.status}`
             };
         }
 
-        // Use Gemini Flash for faster analysis with correct Vertex AI format
-        const result = await models.flash.generateContent({
-            contents: [{
-                role: 'user',
-                parts: [
-                    {
-                        inlineData: {
-                            mimeType: actualMimeType,
-                            data: base64Data
-                        }
-                    },
-                    { text: QUICK_FOOD_ANALYSIS_PROMPT }
-                ]
-            }]
-        });
-
-        const response = result.response;
-        const text = typeof response.text === 'function'
-            ? response.text()
-            : response.candidates?.[0]?.content?.parts?.[0]?.text;
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
 
         if (!text) {
             throw new Error('No response from AI');
         }
 
         const jsonStr = cleanJsonResponse(text);
-        const data = JSON.parse(jsonStr);
+        const result = JSON.parse(jsonStr);
 
-        if (data.error) {
+        if (result.error) {
             return {
                 success: false,
-                error: data.error
+                error: result.error
             };
         }
 
         return {
             success: true,
-            name: data.name,
-            description: data.description,
-            calories: data.calories,
-            proteins: data.proteins,
-            carbs: data.carbs,
-            fats: data.fats,
-            confidence: data.confidence
+            name: result.name,
+            description: result.description,
+            calories: result.calories,
+            proteins: result.proteins,
+            carbs: result.carbs,
+            fats: result.fats,
+            confidence: result.confidence
         };
 
     } catch (error) {
