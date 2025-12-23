@@ -403,13 +403,18 @@ export function CaloricBalanceWidget({
   const lastDayIndex = weeklyHistory.length - 1;
 
   // Calculate cumulative balance (sum of all daily balances)
-  const cumulativeBalance = weeklyHistory.reduce((sum, day) => {
+  // Capped at 3500 kcal max for positive balance
+  const MAX_POSITIVE_BALANCE = 3500;
+  const rawCumulativeBalance = weeklyHistory.reduce((sum, day) => {
     // Only count days with data
     if (day.consumed > 0) {
       return sum + day.balance;
     }
     return sum;
   }, 0);
+  const cumulativeBalance = rawCumulativeBalance > 0
+    ? Math.min(rawCumulativeBalance, MAX_POSITIVE_BALANCE)
+    : rawCumulativeBalance;
 
   return (
     <motion.div
@@ -448,20 +453,10 @@ export function CaloricBalanceWidget({
       <div className="px-5 pb-4">
         <div className="bg-white rounded-2xl p-4 pt-12 border border-gray-100">
           {/* Legend */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-start mb-4">
             <div className="flex items-center gap-1">
               <span className="text-xs text-gray-500">Seuil</span>
               <span className="text-xs font-bold text-gray-700">{todayTarget.toLocaleString('fr-FR')} KCAL</span>
-            </div>
-            <div className="flex items-center gap-3 text-[10px]">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="text-gray-500">Sous seuil</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-orange-500" />
-                <span className="text-gray-500">Au-dessus</span>
-              </div>
             </div>
           </div>
 
