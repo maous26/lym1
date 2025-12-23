@@ -140,39 +140,43 @@ export default function RecipeDetailPage() {
 
     return (
         <div className="min-h-screen bg-stone-50 pb-24">
-            {/* Header Image */}
-            <div className="relative h-64 bg-gradient-to-br from-orange-100 to-rose-100">
-                {recipe.imageUrl ? (
-                    <img
-                        src={recipe.imageUrl}
-                        alt={recipe.title}
-                        className="w-full h-full object-cover"
-                    />
-                ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                        <ChefHat className="w-16 h-16 text-stone-300" />
-                    </div>
-                )}
-
+            {/* Header with smaller image */}
+            <div className="relative bg-gradient-to-br from-orange-100 to-rose-100 pt-14 pb-4 px-4">
                 {/* Back Button */}
                 <button
                     onClick={() => router.back()}
-                    className="absolute top-4 left-4 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg"
+                    className="absolute top-4 left-4 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg z-10"
                 >
                     <ArrowLeft className="w-5 h-5 text-stone-700" />
                 </button>
 
-                {/* Rating Badge */}
-                {recipe.ratingsCount > 0 && (
-                    <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-amber-500 text-white rounded-full flex items-center gap-1.5 shadow-lg">
-                        <Star className="w-4 h-4 fill-current" />
-                        <span className="text-sm font-medium">{recipe.averageRating.toFixed(1)}</span>
-                    </div>
-                )}
+                {/* Smaller centered image */}
+                <div className="flex justify-center">
+                    {recipe.imageUrl ? (
+                        <div className="relative w-32 h-32 rounded-2xl overflow-hidden shadow-lg">
+                            <img
+                                src={recipe.imageUrl}
+                                alt={recipe.title}
+                                className="w-full h-full object-cover"
+                            />
+                            {/* Rating Badge */}
+                            {recipe.ratingsCount > 0 && (
+                                <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-amber-500 text-white rounded-full flex items-center gap-1 shadow-lg">
+                                    <Star className="w-3 h-3 fill-current" />
+                                    <span className="text-xs font-medium">{recipe.averageRating.toFixed(1)}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="w-32 h-32 rounded-2xl bg-white/50 flex items-center justify-center">
+                            <ChefHat className="w-12 h-12 text-stone-300" />
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Content */}
-            <div className="px-4 -mt-6 relative z-10">
+            <div className="px-4 mt-4 relative z-10">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
